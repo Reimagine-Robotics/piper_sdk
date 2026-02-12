@@ -3029,14 +3029,15 @@ class C_PiperInterface_V2():
             enable_flag (int): The enable flag.
                 0x01: Disable
         '''
-        tx_can = Message()
-        enable = ArmMsgMotorEnableDisableConfig(motor_num, enable_flag)
-        msg = PiperMessage(type_=ArmMsgType.PiperMsgMotorEnableDisableConfig, arm_motor_enable=enable)
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("DisableArm send failed: SendCanMessage(%s)", feedback)
-    
+        with self.__lock:
+            tx_can = Message()
+            enable = ArmMsgMotorEnableDisableConfig(motor_num, enable_flag)
+            msg = PiperMessage(type_=ArmMsgType.PiperMsgMotorEnableDisableConfig, arm_motor_enable=enable)
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("DisableArm send failed: SendCanMessage(%s)", feedback)
+
     def EnableArm(self, 
                   motor_num: Literal[1, 2, 3, 4, 5, 6, 7, 0xFF] = 7, 
                   enable_flag: Literal[0x01, 0x02] = 0x02):
@@ -3053,24 +3054,25 @@ class C_PiperInterface_V2():
         '''
         '''
         Disable the motor(s).
-        
+
         CAN ID:
             0x471
-        
+
         Args:
-            motor_num (int): The motor number, ranging from 1 to 7. 
+            motor_num (int): The motor number, ranging from 1 to 7.
                             7 represents all motors.
             enable_flag (int): The enable flag.
                 0x02: Enable
         '''
-        tx_can = Message()
-        disable = ArmMsgMotorEnableDisableConfig(motor_num, enable_flag)
-        msg = PiperMessage(type_=ArmMsgType.PiperMsgMotorEnableDisableConfig, arm_motor_enable=disable)
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("EnableArm send failed: SendCanMessage(%s)", feedback)
-    
+        with self.__lock:
+            tx_can = Message()
+            disable = ArmMsgMotorEnableDisableConfig(motor_num, enable_flag)
+            msg = PiperMessage(type_=ArmMsgType.PiperMsgMotorEnableDisableConfig, arm_motor_enable=disable)
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("EnableArm send failed: SendCanMessage(%s)", feedback)
+
     def EnablePiper(self)->bool:
         '''
         使能机械臂
