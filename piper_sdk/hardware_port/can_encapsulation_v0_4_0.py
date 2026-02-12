@@ -170,19 +170,19 @@ class C_STD_CAN():
         return self.channel_name
 
     def ReadCanMessage(self):
-        can_bus_status = self.is_can_bus_ok()
-        if(can_bus_status == self.CAN_STATUS.BUS_STATE_ACTIVE):
-            try:
-                self.rx_message = self.bus.recv(1)
-                if self.rx_message is None:
-                    return self.CAN_STATUS.READ_CAN_MSG_TIMEOUT
-                if self.rx_message and self.callback_function:
-                    self.callback_function(self.rx_message) #回调函数处理接收的原始数据
-                return self.CAN_STATUS.READ_CAN_MSG_OK
-            except Exception as e:
-                return self.CAN_STATUS.READ_CAN_MSG_FAILED
-        else:
-            return can_bus_status
+        # NOTE: Avoid calling is_can_bus_ok() here. It accesses bus.state which
+        # acquires both _lock_send and _lock_recv in ThreadSafeBus, causing lock
+        # contention with concurrent send/recv operations and introducing latency
+        # that manifests as arm jerkiness under CPU load.
+        try:
+            self.rx_message = self.bus.recv(1)
+            if self.rx_message is None:
+                return self.CAN_STATUS.READ_CAN_MSG_TIMEOUT
+            if self.rx_message and self.callback_function:
+                self.callback_function(self.rx_message) #回调函数处理接收的原始数据
+            return self.CAN_STATUS.READ_CAN_MSG_OK
+        except Exception as e:
+            return self.CAN_STATUS.READ_CAN_MSG_FAILED
 
     def SendCanMessage(self, arbitration_id, data, dlc=8, is_extended_id=False):
         '''can transmit
@@ -192,22 +192,21 @@ class C_STD_CAN():
             data (_type_): _description_ Defaults to 8.
             is_extended_id_ (bool, optional): _description_. Defaults to False.
         '''
+        # NOTE: Avoid calling is_can_bus_ok() here. It accesses bus.state which
+        # acquires both _lock_send and _lock_recv in ThreadSafeBus, causing lock
+        # contention with the blocking recv() in the reader thread. This
+        # contention introduces variable latency (2-100ms+ per send under CPU
+        # load) that causes arm jerkiness. bus.send() already raises on errors.
         message = can.Message(channel=self.channel_name,
-                              arbitration_id=arbitration_id, 
-                              data=data, 
+                              arbitration_id=arbitration_id,
+                              data=data,
                               dlc=dlc,
                               is_extended_id=is_extended_id)
-        if(self.is_can_bus_ok() == self.CAN_STATUS.BUS_STATE_ACTIVE):
-            try:
-                self.bus.send(message)
-                # return True
-                return self.CAN_STATUS.SEND_MESSAGE_SUCCESS
-            # except can.CanError:
-            #     return self.CAN_STATUS.SEND_MESSAGE_FAILED
-            except Exception as e:
-                return self.CAN_STATUS.SEND_MESSAGE_FAILED
-        else:
-            return self.CAN_STATUS.SEND_CAN_BUS_NOT_OK
+        try:
+            self.bus.send(message)
+            return self.CAN_STATUS.SEND_MESSAGE_SUCCESS
+        except Exception as e:
+            return self.CAN_STATUS.SEND_MESSAGE_FAILED
 
     def is_can_bus_ok(self) -> bool:
         '''

@@ -133,12 +133,15 @@ class C_STD_CAN():
         return self.rx_message
 
     def ReadCanMessage(self):
-        if self.is_can_bus_ok():
+        # NOTE: Avoid calling is_can_bus_ok() here. It accesses bus.state which
+        # acquires both _lock_send and _lock_recv in ThreadSafeBus, causing lock
+        # contention with concurrent send/recv operations.
+        try:
             self.rx_message = self.bus.recv()
             if self.rx_message and self.callback_function:
                 self.callback_function(self.rx_message) #回调函数处理接收的原始数据
-        else:
-            print("CAN bus is not OK, skipping message read")
+        except can.CanError:
+            print("CAN bus error during read")
 
     def SendCanMessage(self, arbitration_id, data):
         '''can transmit
@@ -148,20 +151,18 @@ class C_STD_CAN():
             data (_type_): _description_
             is_extended_id_ (bool, optional): _description_. Defaults to False.
         '''
+        # NOTE: Avoid calling is_can_bus_ok() here. It accesses bus.state which
+        # acquires both _lock_send and _lock_recv in ThreadSafeBus, causing lock
+        # contention with the blocking recv() in the reader thread.
         message = can.Message(channel=self.channel_name,
-                              arbitration_id=arbitration_id, 
-                              data=data, 
+                              arbitration_id=arbitration_id,
+                              data=data,
                               dlc=8,
                               is_extended_id=False)
-        if self.is_can_bus_ok():
-            try:
-                self.bus.send(message)
-                # print(message)
-                # print(f"Message sent on {self.bus.channel_info}")
-            except can.CanError:
-                print(can.CanError,"Message NOT sent")
-        else:
-            print("CAN bus is not OK, cannot send message")
+        try:
+            self.bus.send(message)
+        except can.CanError:
+            print(can.CanError,"Message NOT sent")
 
     def is_can_bus_ok(self) -> bool:
         '''
