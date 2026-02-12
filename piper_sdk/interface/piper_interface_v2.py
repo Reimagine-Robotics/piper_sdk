@@ -2453,13 +2453,14 @@ class C_PiperInterface_V2():
                 0x06: Terminate execution
                 0x07: Move to trajectory start point
         '''
-        tx_can = Message()
-        motion_ctrl_1 = ArmMsgMotionCtrl_1(emergency_stop, track_ctrl, grag_teach_ctrl)
-        msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_1, arm_motion_ctrl_1=motion_ctrl_1)
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("0x150 send failed: SendCanMessage(%s)", feedback)
+        with self.__lock:
+            tx_can = Message()
+            motion_ctrl_1 = ArmMsgMotionCtrl_1(emergency_stop, track_ctrl, grag_teach_ctrl)
+            msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_1, arm_motion_ctrl_1=motion_ctrl_1)
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("0x150 send failed: SendCanMessage(%s)", feedback)
 
     def EmergencyStop(self, 
                         emergency_stop: Literal[0x00, 0x01, 0x02] = 0):
@@ -2576,14 +2577,15 @@ class C_PiperInterface_V2():
                             0x02 Side mount left
                             0x03 Side mount right
         '''
-        tx_can = Message()
-        motion_ctrl_2 = ArmMsgMotionCtrl_2(ctrl_mode, move_mode, move_spd_rate_ctrl, is_mit_mode, residence_time, installation_pos)
-        msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_2, arm_motion_ctrl_2=motion_ctrl_2)
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("0x151 send failed: SendCanMessage(%s)", feedback)
-    
+        with self.__lock:
+            tx_can = Message()
+            motion_ctrl_2 = ArmMsgMotionCtrl_2(ctrl_mode, move_mode, move_spd_rate_ctrl, is_mit_mode, residence_time, installation_pos)
+            msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_2, arm_motion_ctrl_2=motion_ctrl_2)
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("0x151 send failed: SendCanMessage(%s)", feedback)
+
     def ModeCtrl(self, 
                 ctrl_mode: Literal[0x00, 0x01] = 0x01, 
                 move_mode: Literal[0x00, 0x01, 0x02, 0x03, 0x04, 0x05] = 0x01, 
@@ -2675,17 +2677,18 @@ class C_PiperInterface_V2():
             RY_axis: Rotation about Y-axis, in 0.001 degrees.
             RZ_axis: Rotation about Z-axis, in 0.001 degrees.
         '''
-        if not self.__ValidateEndPoseValue("X", X) or \
-        not self.__ValidateEndPoseValue("Y", Y) or \
-        not self.__ValidateEndPoseValue("Z", Z) or \
-        not self.__ValidateEndPoseValue("RX", RX) or \
-        not self.__ValidateEndPoseValue("RY", RY) or \
-        not self.__ValidateEndPoseValue("RZ", RZ):
-            return
-        self.__CartesianCtrl_XY(X,Y)
-        self.__CartesianCtrl_ZRX(Z,RX)
-        self.__CartesianCtrl_RYRZ(RY,RZ)
-    
+        with self.__lock:
+            if not self.__ValidateEndPoseValue("X", X) or \
+            not self.__ValidateEndPoseValue("Y", Y) or \
+            not self.__ValidateEndPoseValue("Z", Z) or \
+            not self.__ValidateEndPoseValue("RX", RX) or \
+            not self.__ValidateEndPoseValue("RY", RY) or \
+            not self.__ValidateEndPoseValue("RZ", RZ):
+                return
+            self.__CartesianCtrl_XY(X,Y)
+            self.__CartesianCtrl_ZRX(Z,RX)
+            self.__CartesianCtrl_RYRZ(RY,RZ)
+
     def __CartesianCtrl_XY(self, X:int, Y:int):
         tx_can = Message()
         cartesian_1 = ArmMsgMotionCtrlCartesian(X_axis=X, Y_axis=Y)
@@ -2766,16 +2769,17 @@ class C_PiperInterface_V2():
             joint_5 (int): The angle of joint 5.in 0.001°
             joint_6 (int): The angle of joint 6.in 0.001°
         '''
-        joint_1 = self.__CalJointSDKLimit(joint_1, "j1")
-        joint_2 = self.__CalJointSDKLimit(joint_2, "j2")
-        joint_3 = self.__CalJointSDKLimit(joint_3, "j3")
-        joint_4 = self.__CalJointSDKLimit(joint_4, "j4")
-        joint_5 = self.__CalJointSDKLimit(joint_5, "j5")
-        joint_6 = self.__CalJointSDKLimit(joint_6, "j6")
-        self.__JointCtrl_12(joint_1, joint_2)
-        self.__JointCtrl_34(joint_3, joint_4)
-        self.__JointCtrl_56(joint_5, joint_6)
-    
+        with self.__lock:
+            joint_1 = self.__CalJointSDKLimit(joint_1, "j1")
+            joint_2 = self.__CalJointSDKLimit(joint_2, "j2")
+            joint_3 = self.__CalJointSDKLimit(joint_3, "j3")
+            joint_4 = self.__CalJointSDKLimit(joint_4, "j4")
+            joint_5 = self.__CalJointSDKLimit(joint_5, "j5")
+            joint_6 = self.__CalJointSDKLimit(joint_6, "j6")
+            self.__JointCtrl_12(joint_1, joint_2)
+            self.__JointCtrl_34(joint_3, joint_4)
+            self.__JointCtrl_56(joint_5, joint_6)
+
     def __JointCtrl_12(self, joint_1: int, joint_2: int):
         '''
         机械臂1,2关节控制
@@ -2932,15 +2936,16 @@ class C_PiperInterface_V2():
                 0x00: Invalid value
                 0xAE: Set zero point
         '''
-        tx_can = Message()
-        gripper_angle = self.__CalGripperSDKLimit(gripper_angle)
-        gripper_ctrl = ArmMsgGripperCtrl(gripper_angle, gripper_effort, gripper_code, set_zero)
-        msg = PiperMessage(type_=ArmMsgType.PiperMsgGripperCtrl, arm_gripper_ctrl=gripper_ctrl)
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("GripperCtrl send failed: SendCanMessage(%s)", feedback)
-    
+        with self.__lock:
+            tx_can = Message()
+            gripper_angle = self.__CalGripperSDKLimit(gripper_angle)
+            gripper_ctrl = ArmMsgGripperCtrl(gripper_angle, gripper_effort, gripper_code, set_zero)
+            msg = PiperMessage(type_=ArmMsgType.PiperMsgGripperCtrl, arm_gripper_ctrl=gripper_ctrl)
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("GripperCtrl send failed: SendCanMessage(%s)", feedback)
+
     def MasterSlaveConfig(self, linkage_config: int, feedback_offset: int, ctrl_offset: int, linkage_offset: int):
         '''
         随动主从模式设置指令
@@ -3562,35 +3567,36 @@ class C_PiperInterface_V2():
             t_min:扭矩参数最小值
             t_max:扭矩参数最大值
         '''
-        pos_tmp = self.__parser.FloatToUint(pos_ref, p_min, p_max, 16)
-        vel_tmp = self.__parser.FloatToUint(vel_ref, v_min, v_max, 12)
-        kp_tmp = self.__parser.FloatToUint(kp, kp_min, kp_max, 12)
-        kd_tmp = self.__parser.FloatToUint(kd, kd_min, kd_max, 12)
-        t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, 8)
-        tx_can = Message()
-        mit_ctrl = ArmMsgJointMitCtrl(  pos_ref=pos_tmp, 
-                                        vel_ref=vel_tmp,
-                                        kp=kp_tmp, 
-                                        kd=kd_tmp,
-                                        t_ref=t_tmp)
-        if(motor_num == 1):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_1, arm_joint_mit_ctrl=mit_ctrl)
-        elif(motor_num == 2):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_2, arm_joint_mit_ctrl=mit_ctrl)
-        elif(motor_num == 3):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_3, arm_joint_mit_ctrl=mit_ctrl)
-        elif(motor_num == 4):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_4, arm_joint_mit_ctrl=mit_ctrl)
-        elif(motor_num == 5):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_5, arm_joint_mit_ctrl=mit_ctrl)
-        elif(motor_num == 6):
-            msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_6, arm_joint_mit_ctrl=mit_ctrl)
-        else:
-            raise ValueError(f"'motor_num' {motor_num} out of range 0-6.")
-        self.__parser.EncodeMessage(msg, tx_can)
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("JointMitCtrl send failed: SendCanMessage(%s)", feedback)
+        with self.__lock:
+            pos_tmp = self.__parser.FloatToUint(pos_ref, p_min, p_max, 16)
+            vel_tmp = self.__parser.FloatToUint(vel_ref, v_min, v_max, 12)
+            kp_tmp = self.__parser.FloatToUint(kp, kp_min, kp_max, 12)
+            kd_tmp = self.__parser.FloatToUint(kd, kd_min, kd_max, 12)
+            t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, 8)
+            tx_can = Message()
+            mit_ctrl = ArmMsgJointMitCtrl(  pos_ref=pos_tmp,
+                                            vel_ref=vel_tmp,
+                                            kp=kp_tmp,
+                                            kd=kd_tmp,
+                                            t_ref=t_tmp)
+            if(motor_num == 1):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_1, arm_joint_mit_ctrl=mit_ctrl)
+            elif(motor_num == 2):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_2, arm_joint_mit_ctrl=mit_ctrl)
+            elif(motor_num == 3):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_3, arm_joint_mit_ctrl=mit_ctrl)
+            elif(motor_num == 4):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_4, arm_joint_mit_ctrl=mit_ctrl)
+            elif(motor_num == 5):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_5, arm_joint_mit_ctrl=mit_ctrl)
+            elif(motor_num == 6):
+                msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_6, arm_joint_mit_ctrl=mit_ctrl)
+            else:
+                raise ValueError(f"'motor_num' {motor_num} out of range 0-6.")
+            self.__parser.EncodeMessage(msg, tx_can)
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("JointMitCtrl send failed: SendCanMessage(%s)", feedback)
     
     def JointMitCtrl(self,motor_num:int,
                     pos_ref:float, vel_ref:float, kp:float, kd:float, t_ref:float):
