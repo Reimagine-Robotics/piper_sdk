@@ -1,8 +1,20 @@
 import os
+import subprocess
 from setuptools import setup, find_packages
 
 # 获取 setup.py 所在目录
 here = os.path.abspath(os.path.dirname(__file__))
+
+# Stamp git commit hash into _commit.py
+try:
+    commit = subprocess.check_output(
+        ['git', 'rev-parse', '--short', 'HEAD'],
+        cwd=here, stderr=subprocess.DEVNULL,
+    ).decode().strip()
+    with open(os.path.join(here, 'piper_sdk', '_commit.py'), 'w') as f:
+        f.write(f'COMMIT = "r2-{commit}"\n')
+except Exception:
+    pass
 
 setup(
     name='piper_sdk',
