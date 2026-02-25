@@ -6,5 +6,6 @@ __pycache__
 *.zip
 *.tar
 piper_sdk.egg-info
+piper_sdk/_commit.py
 dist
 build
