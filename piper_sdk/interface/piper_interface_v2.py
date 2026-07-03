@@ -2,6 +2,7 @@
 # -*-coding:utf8-*-
 
 import time
+import re
 import can
 from can.message import Message
 from typing import (
@@ -23,6 +24,8 @@ from ..utils import logger, global_area
 from ..piper_param import *
 from ..version import PiperSDKVersion
 from .interface_version import InterfaceVersion
+
+_PIPER_MIT_12BIT_FRAME_VERSION = (1, 8, 8)
 
 class C_PiperInterface_V2():
     '''
@@ -1604,17 +1607,26 @@ class C_PiperInterface_V2():
         Failure: Returns -0x4AF.
         '''
         with self.__firmware_data_mtx:
-            # 查找固件版本信息
-            version_start = self.__firmware_data.find(b'S-V')
-            if version_start == -1:
+            version_match = re.search(rb'S-V\d+\.\d+-\d+', self.__firmware_data)
+            if version_match is None:
                 return -0x4AF  # 没有找到以 S-V 开头的字符串
-            # 固定长度为 8
-            version_length = 8
-            # 确保不会超出 bytearray 的长度
-            version_end = min(version_start + version_length, len(self.__firmware_data))
-            # 提取版本信息，截取固定长度的字节数据
-            firmware_version = self.__firmware_data[version_start:version_end].decode('utf-8', errors='ignore')
+            firmware_version = version_match.group(0).decode('utf-8', errors='ignore')
             return firmware_version  # 返回找到的固件版本字符串
+
+    def __PiperFirmwareTuple(self):
+        firmware_version = self.GetPiperFirmwareVersion()
+        if not isinstance(firmware_version, str):
+            return None
+        match = re.search(r"S-V(\d+)\.(\d+)-(\d+)", firmware_version)
+        if match is None:
+            return None
+        return tuple(int(group) for group in match.groups())
+
+    def __PiperFirmwareUsesMit12BitFrame(self):
+        firmware_tuple = self.__PiperFirmwareTuple()
+        if firmware_tuple is None:
+            return False
+        return firmware_tuple >= _PIPER_MIT_12BIT_FRAME_VERSION
     
     def GetRespInstruction(self):
         '''
@@ -2581,6 +2593,8 @@ class C_PiperInterface_V2():
                             0x03 Side mount right
         '''
         tx_can = Message()
+        if move_mode == 0x04 and self.__PiperFirmwareUsesMit12BitFrame():
+            move_mode = 0x06
         motion_ctrl_2 = ArmMsgMotionCtrl_2(ctrl_mode, move_mode, move_spd_rate_ctrl, is_mit_mode, residence_time, installation_pos)
         msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_2, arm_motion_ctrl_2=motion_ctrl_2)
         self.__parser.EncodeMessage(msg, tx_can)
@@ -3566,17 +3580,24 @@ class C_PiperInterface_V2():
             t_min:扭矩参数最小值
             t_max:扭矩参数最大值
         '''
+        torque_bits = 8
+        if self.__PiperFirmwareUsesMit12BitFrame():
+            t_min = -16.0
+            t_max = 16.0
+            torque_bits = 12
+
         pos_tmp = self.__parser.FloatToUint(pos_ref, p_min, p_max, 16)
         vel_tmp = self.__parser.FloatToUint(vel_ref, v_min, v_max, 12)
         kp_tmp = self.__parser.FloatToUint(kp, kp_min, kp_max, 12)
         kd_tmp = self.__parser.FloatToUint(kd, kd_min, kd_max, 12)
-        t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, 8)
+        t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, torque_bits)
         tx_can = Message()
         mit_ctrl = ArmMsgJointMitCtrl(  pos_ref=pos_tmp, 
                                         vel_ref=vel_tmp,
                                         kp=kp_tmp, 
                                         kd=kd_tmp,
-                                        t_ref=t_tmp)
+                                        t_ref=t_tmp,
+                                        torque_bits=torque_bits)
         if(motor_num == 1):
             msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_1, arm_joint_mit_ctrl=mit_ctrl)
         elif(motor_num == 2):
@@ -3610,7 +3631,7 @@ class C_PiperInterface_V2():
             vel_ref: 设定电机运动的速度,[-45.0,45.0]
             kp: 比例增益,控制位置误差对输出力矩的影响,参考值---10,[0.0,500.0]
             kd: 微分增益,控制速度误差对输出力矩的影响,参考值---0.8,[-5.0,5.0]
-            t_ref: 目标力矩参考值,用于控制电机施加的力矩或扭矩,[-18.0,18.0]
+            t_ref: 目标力矩参考值,用于控制电机施加的力矩或扭矩,[-8.0,8.0]; 固件S-V1.8-8及以上为[-16.0,16.0]
         '''
         '''
         Robotic Arm Joint 1~6 MIT Control Command
@@ -3624,7 +3645,7 @@ class C_PiperInterface_V2():
             vel_ref: Desired motor speed, range [-45.0, 45.0]
             kp: Proportional gain, controls the influence of position error on output torque, reference value: 10, range [0.0, 500.0]
             kd: Derivative gain, controls the influence of speed error on output torque, reference value: 0.8, range [-5.0, 5.0]
-            t_ref: Target torque reference, controls the torque applied by the motor, range [-18.0, 18.0]
+            t_ref: Target torque reference, controls the torque applied by the motor, range [-8.0, 8.0]; firmware S-V1.8-8 and later use [-16.0, 16.0]
         '''
         self.__JointMitCtrl(motor_num, pos_ref, vel_ref, kp, kd, t_ref)
     
