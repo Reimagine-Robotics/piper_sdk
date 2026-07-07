@@ -484,6 +484,7 @@ class C_PiperInterface_V2():
         # 固件版本
         self.__firmware_data_mtx = threading.Lock()
         self.__firmware_data = bytearray()
+        self.__firmware_version_tuple = None
         # 二次封装数据类型
         self.__arm_status_mtx = threading.Lock()
         self.__arm_status = self.ArmStatus()
@@ -1614,13 +1615,17 @@ class C_PiperInterface_V2():
             return firmware_version  # 返回找到的固件版本字符串
 
     def __PiperFirmwareTuple(self):
-        firmware_version = self.GetPiperFirmwareVersion()
-        if not isinstance(firmware_version, str):
-            return None
-        match = re.search(r"S-V(\d+)\.(\d+)-(\d+)", firmware_version)
-        if match is None:
-            return None
-        return tuple(int(group) for group in match.groups())
+        # cached parse; invalidated whenever __firmware_data changes so the hot
+        # MIT-control path pays the regex cost only once per firmware read.
+        if self.__firmware_version_tuple is not None:
+            return self.__firmware_version_tuple
+        with self.__firmware_data_mtx:
+            match = re.search(rb"S-V(\d+)\.(\d+)-(\d+)", self.__firmware_data)
+            if match is None:
+                return None
+            self.__firmware_version_tuple = tuple(
+                int(group) for group in match.groups())
+            return self.__firmware_version_tuple
 
     def __PiperFirmwareUsesMit12BitFrame(self):
         firmware_tuple = self.__PiperFirmwareTuple()
@@ -2357,6 +2362,7 @@ class C_PiperInterface_V2():
         with self.__firmware_data_mtx:
             if(msg.type_ == ArmMsgType.PiperMsgFirmwareRead):
                 self.__firmware_data = self.__firmware_data + msg.firmware_data
+                self.__firmware_version_tuple = None
             return self.__firmware_data
     
     def __UpdatePiperFeedbackFK(self):
@@ -3545,7 +3551,9 @@ class C_PiperInterface_V2():
         feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
         if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
             self.logger.error("SearchPiperFirmwareVersion send failed: SendCanMessage(%s)", feedback)
-        self.__firmware_data = bytearray()
+        with self.__firmware_data_mtx:
+            self.__firmware_data = bytearray()
+            self.__firmware_version_tuple = None
     
     def __JointMitCtrl(self,motor_num:int,
                             pos_ref:float, vel_ref:float, kp:float, kd:float, t_ref:float,
