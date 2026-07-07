@@ -51,6 +51,7 @@ def make_interface(firmware_data):
     interface._C_PiperInterface_V2__arm_can = FakeCan()
     interface._C_PiperInterface_V2__firmware_data_mtx = threading.Lock()
     interface._C_PiperInterface_V2__firmware_data = bytearray(firmware_data)
+    interface._C_PiperInterface_V2__firmware_version_tuple = None
     return interface
 
 
