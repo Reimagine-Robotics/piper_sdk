@@ -2,7 +2,6 @@
 # -*-coding:utf8-*-
 
 import time
-import re
 import can
 from can.message import Message
 from typing import (
@@ -24,8 +23,6 @@ from ..utils import logger, global_area
 from ..piper_param import *
 from ..version import PiperSDKVersion
 from .interface_version import InterfaceVersion
-
-_PIPER_MIT_12BIT_FRAME_VERSION = (1, 8, 8)
 
 class C_PiperInterface_V2():
     '''
@@ -484,7 +481,6 @@ class C_PiperInterface_V2():
         # 固件版本
         self.__firmware_data_mtx = threading.Lock()
         self.__firmware_data = bytearray()
-        self.__firmware_version_tuple = None
         # 二次封装数据类型
         self.__arm_status_mtx = threading.Lock()
         self.__arm_status = self.ArmStatus()
@@ -1608,30 +1604,17 @@ class C_PiperInterface_V2():
         Failure: Returns -0x4AF.
         '''
         with self.__firmware_data_mtx:
-            version_match = re.search(rb'S-V\d+\.\d+-\d+', self.__firmware_data)
-            if version_match is None:
+            # 查找固件版本信息
+            version_start = self.__firmware_data.find(b'S-V')
+            if version_start == -1:
                 return -0x4AF  # 没有找到以 S-V 开头的字符串
-            firmware_version = version_match.group(0).decode('utf-8', errors='ignore')
+            # 固定长度为 8
+            version_length = 8
+            # 确保不会超出 bytearray 的长度
+            version_end = min(version_start + version_length, len(self.__firmware_data))
+            # 提取版本信息，截取固定长度的字节数据
+            firmware_version = self.__firmware_data[version_start:version_end].decode('utf-8', errors='ignore')
             return firmware_version  # 返回找到的固件版本字符串
-
-    def __PiperFirmwareTuple(self):
-        # cached parse; invalidated whenever __firmware_data changes so the hot
-        # MIT-control path pays the regex cost only once per firmware read.
-        if self.__firmware_version_tuple is not None:
-            return self.__firmware_version_tuple
-        with self.__firmware_data_mtx:
-            match = re.search(rb"S-V(\d+)\.(\d+)-(\d+)", self.__firmware_data)
-            if match is None:
-                return None
-            self.__firmware_version_tuple = tuple(
-                int(group) for group in match.groups())
-            return self.__firmware_version_tuple
-
-    def __PiperFirmwareUsesMit12BitFrame(self):
-        firmware_tuple = self.__PiperFirmwareTuple()
-        if firmware_tuple is None:
-            return False
-        return firmware_tuple >= _PIPER_MIT_12BIT_FRAME_VERSION
     
     def GetRespInstruction(self):
         '''
@@ -2362,7 +2345,6 @@ class C_PiperInterface_V2():
         with self.__firmware_data_mtx:
             if(msg.type_ == ArmMsgType.PiperMsgFirmwareRead):
                 self.__firmware_data = self.__firmware_data + msg.firmware_data
-                self.__firmware_version_tuple = None
             return self.__firmware_data
     
     def __UpdatePiperFeedbackFK(self):
@@ -2599,8 +2581,6 @@ class C_PiperInterface_V2():
                             0x03 Side mount right
         '''
         tx_can = Message()
-        if move_mode == 0x04 and self.__PiperFirmwareUsesMit12BitFrame():
-            move_mode = 0x06
         motion_ctrl_2 = ArmMsgMotionCtrl_2(ctrl_mode, move_mode, move_spd_rate_ctrl, is_mit_mode, residence_time, installation_pos)
         msg = PiperMessage(type_=ArmMsgType.PiperMsgMotionCtrl_2, arm_motion_ctrl_2=motion_ctrl_2)
         self.__parser.EncodeMessage(msg, tx_can)
@@ -3551,9 +3531,7 @@ class C_PiperInterface_V2():
         feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
         if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
             self.logger.error("SearchPiperFirmwareVersion send failed: SendCanMessage(%s)", feedback)
-        with self.__firmware_data_mtx:
-            self.__firmware_data = bytearray()
-            self.__firmware_version_tuple = None
+        self.__firmware_data = bytearray()
     
     def __JointMitCtrl(self,motor_num:int,
                             pos_ref:float, vel_ref:float, kp:float, kd:float, t_ref:float,
@@ -3588,24 +3566,17 @@ class C_PiperInterface_V2():
             t_min:扭矩参数最小值
             t_max:扭矩参数最大值
         '''
-        torque_bits = 8
-        if self.__PiperFirmwareUsesMit12BitFrame():
-            t_min = -16.0
-            t_max = 16.0
-            torque_bits = 12
-
         pos_tmp = self.__parser.FloatToUint(pos_ref, p_min, p_max, 16)
         vel_tmp = self.__parser.FloatToUint(vel_ref, v_min, v_max, 12)
         kp_tmp = self.__parser.FloatToUint(kp, kp_min, kp_max, 12)
         kd_tmp = self.__parser.FloatToUint(kd, kd_min, kd_max, 12)
-        t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, torque_bits)
+        t_tmp = self.__parser.FloatToUint(t_ref, t_min, t_max, 8)
         tx_can = Message()
         mit_ctrl = ArmMsgJointMitCtrl(  pos_ref=pos_tmp, 
                                         vel_ref=vel_tmp,
                                         kp=kp_tmp, 
                                         kd=kd_tmp,
-                                        t_ref=t_tmp,
-                                        torque_bits=torque_bits)
+                                        t_ref=t_tmp)
         if(motor_num == 1):
             msg = PiperMessage(type_=ArmMsgType.PiperMsgJointMitCtrl_1, arm_joint_mit_ctrl=mit_ctrl)
         elif(motor_num == 2):
@@ -3639,7 +3610,7 @@ class C_PiperInterface_V2():
             vel_ref: 设定电机运动的速度,[-45.0,45.0]
             kp: 比例增益,控制位置误差对输出力矩的影响,参考值---10,[0.0,500.0]
             kd: 微分增益,控制速度误差对输出力矩的影响,参考值---0.8,[-5.0,5.0]
-            t_ref: 目标力矩参考值,用于控制电机施加的力矩或扭矩,[-8.0,8.0]; 固件S-V1.8-8及以上为[-16.0,16.0]
+            t_ref: 目标力矩参考值,用于控制电机施加的力矩或扭矩,[-18.0,18.0]
         '''
         '''
         Robotic Arm Joint 1~6 MIT Control Command
@@ -3653,7 +3624,7 @@ class C_PiperInterface_V2():
             vel_ref: Desired motor speed, range [-45.0, 45.0]
             kp: Proportional gain, controls the influence of position error on output torque, reference value: 10, range [0.0, 500.0]
             kd: Derivative gain, controls the influence of speed error on output torque, reference value: 0.8, range [-5.0, 5.0]
-            t_ref: Target torque reference, controls the torque applied by the motor, range [-8.0, 8.0]; firmware S-V1.8-8 and later use [-16.0, 16.0]
+            t_ref: Target torque reference, controls the torque applied by the motor, range [-18.0, 18.0]
         '''
         self.__JointMitCtrl(motor_num, pos_ref, vel_ref, kp, kd, t_ref)
     

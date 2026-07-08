@@ -433,20 +433,13 @@ class C_PiperParserV2(C_PiperParserBase):
                                 self.ConvertToList_8bit(((((msg.arm_joint_mit_ctrl.vel_ref&0xF)<<4)&0xF0) | 
                                                          ((msg.arm_joint_mit_ctrl.kp>>8)&0x0F)),False) + \
                                 self.ConvertToList_8bit(msg.arm_joint_mit_ctrl.kp&0xFF,False) + \
-                                self.ConvertToList_8bit((msg.arm_joint_mit_ctrl.kd>>4)&0xFF,False)
-            if msg.arm_joint_mit_ctrl.torque_bits == 12:
-                tx_can_frame.data = tx_can_frame.data + \
-                                    self.ConvertToList_8bit(((((msg.arm_joint_mit_ctrl.kd&0xF)<<4)&0xF0)|
-                                                             ((msg.arm_joint_mit_ctrl.t_ref>>8)&0x0F)),False) + \
-                                    self.ConvertToList_8bit(msg.arm_joint_mit_ctrl.t_ref&0xFF,False)
-            else:
-                tx_can_frame.data = tx_can_frame.data + \
-                                    self.ConvertToList_8bit(((((msg.arm_joint_mit_ctrl.kd&0xF)<<4)&0xF0)|
-                                                             ((msg.arm_joint_mit_ctrl.t_ref>>4)&0x0F)),False)
-                crc = (tx_can_frame.data[0]^tx_can_frame.data[1]^tx_can_frame.data[2]^tx_can_frame.data[3]^tx_can_frame.data[4]^tx_can_frame.data[5]^ \
-                    tx_can_frame.data[6])&0x0F
-                msg.arm_joint_mit_ctrl.crc = crc
-                tx_can_frame.data = tx_can_frame.data + self.ConvertToList_8bit((((msg.arm_joint_mit_ctrl.t_ref<<4)&0xF0) | crc),False)
+                                self.ConvertToList_8bit((msg.arm_joint_mit_ctrl.kd>>4)&0xFF,False) + \
+                                self.ConvertToList_8bit(((((msg.arm_joint_mit_ctrl.kd&0xF)<<4)&0xF0)|
+                                                         ((msg.arm_joint_mit_ctrl.t_ref>>4)&0x0F)),False)
+            crc = (tx_can_frame.data[0]^tx_can_frame.data[1]^tx_can_frame.data[2]^tx_can_frame.data[3]^tx_can_frame.data[4]^tx_can_frame.data[5]^ \
+                tx_can_frame.data[6])&0x0F
+            msg.arm_joint_mit_ctrl.crc = crc
+            tx_can_frame.data = tx_can_frame.data + self.ConvertToList_8bit((((msg.arm_joint_mit_ctrl.t_ref<<4)&0xF0) | crc),False)
         else:
             ret = False
         return ret

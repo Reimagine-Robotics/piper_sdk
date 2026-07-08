@@ -66,15 +66,13 @@ class ArmMsgJointMitCtrl():
                  kp = 10, 
                  kd = 0.8,
                  t_ref = 0, 
-                 crc = 0,
-                 torque_bits = 8):
+                 crc = 0):
         self.pos_ref = pos_ref
         self.vel_ref = vel_ref
         self.kp = kp
         self.kd = kd
         self.t_ref = t_ref
         self.crc = crc
-        self.torque_bits = torque_bits
     
     def __str__(self):
         # 将角度乘以0.001，并保留三位小数
@@ -84,8 +82,7 @@ class ArmMsgJointMitCtrl():
             ("kp", self.kp ),
             ("kd", self.kd ),
             ("t_ref", self.t_ref ),
-            ("crc", self.crc ),
-            ("torque_bits", self.torque_bits )
+            ("crc", self.crc )
         ]
 
         # 生成格式化字符串，保留三位小数
