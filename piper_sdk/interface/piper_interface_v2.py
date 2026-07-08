@@ -1838,6 +1838,7 @@ class C_PiperInterface_V2():
                 self.__arm_gripper_msgs.gripper_state.grippers_angle = self.__CalGripperSDKLimit(msg.gripper_feedback.grippers_angle)
                 self.__arm_gripper_msgs.gripper_state.grippers_effort = msg.gripper_feedback.grippers_effort
                 self.__arm_gripper_msgs.gripper_state.status_code = msg.gripper_feedback.status_code
+                self.__arm_gripper_msgs.gripper_state.mode = msg.gripper_feedback.mode
             return self.__arm_gripper_msgs
     
     def __UpdateDriverInfoHighSpdFeedback(self, msg:PiperMessage):
@@ -2919,7 +2920,7 @@ class C_PiperInterface_V2():
     def GripperCtrl(self, 
                     gripper_angle: int = 0, 
                     gripper_effort: int = 0, 
-                    gripper_code: Literal[0x00, 0x01, 0x02, 0x03] = 0, 
+                    gripper_code: Literal[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07] = 0, 
                     set_zero: Literal[0x00, 0xAE] = 0):
         '''
         夹爪控制

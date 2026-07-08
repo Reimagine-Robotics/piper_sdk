@@ -60,6 +60,7 @@ class ArmMsgFeedbackStatusEnum:
         MOVE_C = 0x03
         MOVE_M = 0x04
         MOVE_CPV = 0x05
+        MOVE_MIT = 0x06
         UNKNOWN = 0xFF
     @unique
     class TeachingState(_EnumBase):

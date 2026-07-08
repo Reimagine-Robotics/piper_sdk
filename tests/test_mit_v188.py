@@ -4,6 +4,8 @@ from can import Message
 
 from piper_sdk.interface.piper_interface_v2 import C_PiperInterface_V2
 from piper_sdk.piper_msgs.msg_v2 import (
+    ArmMsgFeedbackStatusEnum,
+    ArmMsgGripperCtrl,
     ArmMsgJointMitCtrl,
     ArmMsgMotionCtrl_2,
     ArmMsgType,
@@ -101,6 +103,38 @@ def test_firmware_parser_handles_two_digit_patch_versions():
     interface = make_interface(b"main=S-V1.8-10;motor=M-V1.2-3")
 
     assert interface.GetPiperFirmwareVersion() == "S-V1.8-10"
+
+
+def test_feedback_status_accepts_v188_mit_mode():
+    parser = C_PiperParserV2()
+    message = PiperMessage()
+    frame = Message(
+        arbitration_id=0x2A1,
+        data=[0x01, 0x00, 0x06, 0, 0, 0, 0, 0],
+    )
+
+    parser.DecodeMessage(frame, message)
+
+    assert (
+        message.arm_status_msgs.mode_feed
+        == ArmMsgFeedbackStatusEnum.ModeFeed.MOVE_MIT
+    )
+
+
+def test_gripper_ctrl_accepts_angle_mode_status_codes():
+    msg = ArmMsgGripperCtrl(status_code=0x05)
+
+    assert msg.status_code == 0x05
+
+
+def test_gripper_feedback_decodes_mode_byte():
+    parser = C_PiperParserV2()
+    message = PiperMessage()
+    frame = Message(arbitration_id=0x2A8, data=[0, 0, 0, 0, 0, 0, 0, 0x01])
+
+    parser.DecodeMessage(frame, message)
+
+    assert message.gripper_feedback.mode == "angle"
 
 
 def test_joint_mit_uses_12bit_torque_for_v188_firmware():

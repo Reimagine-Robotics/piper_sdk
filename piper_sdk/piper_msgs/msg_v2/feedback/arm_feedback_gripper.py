@@ -32,7 +32,7 @@ class ArmMsgFeedBackGripper:
             bit[5]      驱动器错误状态(0:正常 1:错误)
             bit[6]      驱动器使能状态(1:使能 0:失能)
             bit[7]      回零状态(0:没有回零 1:已经回零,或已经回过零)
-        Byte 7: 保留
+        Byte 7: 模式, 0x00行程模式, 0x01角度模式
     '''
     '''
     msg_v2_feedback
@@ -65,16 +65,18 @@ class ArmMsgFeedBackGripper:
             bit[5]: Driver error status (0: Normal, 1: Error)
             bit[6]: Driver enable status (1: Enabled, 0: Disabled)
             bit[7]: Zeroing status (0: Not zeroed, 1: Zeroed or previously zeroed)
-        Byte 7: Reserved
+        Byte 7: Mode, 0x00 width mode, 0x01 angle mode
     '''
     def __init__(self, 
                  grippers_angle: int = 0, 
                  grippers_effort: int = 0, 
-                 status_code: int = 0):
+                 status_code: int = 0,
+                 mode: int = 0):
         self.grippers_angle = grippers_angle
         self.grippers_effort = grippers_effort
         self._status_code = status_code
         self.foc_status = self.FOC_Status()
+        self.mode = "angle" if mode == 0x01 else "width"
     
     class FOC_Status:
         def __init__(self):
