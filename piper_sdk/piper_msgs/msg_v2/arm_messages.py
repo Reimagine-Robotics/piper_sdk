@@ -158,6 +158,7 @@ class PiperMessage:
         # self.arm_feedback_all_motor_max_acc_limit = arm_feedback_all_motor_max_acc_limit \
         #     if arm_feedback_all_motor_max_acc_limit else ArmMsgFeedbackAllCurrentMotorMaxAccLimit()
         self.firmware_data = bytearray()
+        self.firmware_node = 0x0F  # 固件信息对应的节点号(CAN ID - 0x4A0)
 
     def __str__(self):
         # feedback

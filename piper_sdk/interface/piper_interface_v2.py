@@ -481,6 +481,10 @@ class C_PiperInterface_V2():
         # 固件版本
         self.__firmware_data_mtx = threading.Lock()
         self.__firmware_data = bytearray()
+        # 各节点固件信息, 节点号 -> 接收到的字节流
+        self.__node_firmware_data_mtx = threading.Condition()
+        self.__firmware_query_mtx = threading.RLock()
+        self.__node_firmware_data = {}
         # 二次封装数据类型
         self.__arm_status_mtx = threading.Lock()
         self.__arm_status = self.ArmStatus()
@@ -2342,9 +2346,25 @@ class C_PiperInterface_V2():
         '''
         Update Piper firmware character information.
         '''
-        with self.__firmware_data_mtx:
-            if(msg.type_ == ArmMsgType.PiperMsgFirmwareRead):
-                self.__firmware_data = self.__firmware_data + msg.firmware_data
+        if msg.type_ != ArmMsgType.PiperMsgFirmwareRead:
+            return self.__firmware_data
+        with self.__node_firmware_data_mtx:
+            node_buf = self.__node_firmware_data.get(msg.firmware_node)
+            data = msg.firmware_data
+            if node_buf is None or len(node_buf) >= 80 or data in (b'\x01', b'\x01' + bytes(7)):
+                return self.__firmware_data
+            # Start at the record header, not a late tail or request echo.
+            if data.startswith(b'H-V'):
+                node_buf.clear()
+            elif not node_buf:
+                return self.__firmware_data
+            # All decoded fields end at byte 80; preserve internal null frames.
+            node_buf.extend(data[:80 - len(node_buf)])
+            if msg.firmware_node == 15:
+                with self.__firmware_data_mtx:
+                    self.__firmware_data = bytearray(node_buf)
+            if len(node_buf) == 80:
+                self.__node_firmware_data_mtx.notify_all()
             return self.__firmware_data
     
     def __UpdatePiperFeedbackFK(self):
@@ -3525,13 +3545,228 @@ class C_PiperInterface_V2():
         CAN ID:
             0x4AF
         '''
+        self.SearchNodeFirmwareVersion(15)
+
+    def SetFirmwareScanMode(self, enter:bool):
+        '''
+        设置CAN升级/扫描模式(固件扫描模式)
+
+        发送CAN升级总线模式设定指令:
+            enter=True  data[0]=0x02 进入组合升级/扫描模式,关节驱动器节点(1~7)仅在此模式下应答0x4A0~0x4AE查询
+            enter=False data[0]=0x00 退出扫描模式
+        注意:主控节点15(0x4AF)无需扫描模式即可应答
+
+        CAN ID:
+            0x422
+
+        Args:
+            enter (bool): True进入扫描模式, False退出扫描模式
+        '''
+        '''
+        Set the CAN upgrade/scan mode (firmware scan mode).
+
+        Sends the CAN upgrade-bus mode config command:
+            enter=True  data[0]=0x02 enters combined upgrade/scan mode; joint driver nodes (1~7)
+                        only answer 0x4A0~0x4AE queries inside this mode
+            enter=False data[0]=0x00 exits scan mode
+        Note: the master node 15 (0x4AF) answers without scan mode.
+
+        CAN ID:
+            0x422
+
+        Args:
+            enter (bool): True to enter scan mode, False to exit.
+        '''
         tx_can = Message()
-        tx_can.arbitration_id = 0x4AF
+        tx_can.arbitration_id = CanIDPiper.ARM_CAN_UPDATE_SILENT_MODE_CONFIG.value
+        tx_can.data = [0x02 if enter else 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        with self.__firmware_query_mtx:
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("SetFirmwareScanMode send failed: SendCanMessage(%s)", feedback)
+
+    def SearchNodeFirmwareVersion(self, node_id:int = 0x0F):
+        '''
+        发送指定节点固件信息查询指令
+
+        查询节点node_id的固件信息,节点应答以0x4A0+node_id为ID的多帧字节流
+        仅清除该节点自身的接收缓冲,不影响其他节点(含默认的主控节点15)
+
+        CAN ID:
+            0x4A0+node_id
+
+        Args:
+            node_id (int): 节点号[0,15],默认0x0F(主控节点)
+
+        Raises:
+            ValueError: node_id超出[0,15]范围
+        '''
+        '''
+        Send a firmware info query command for a specific node.
+
+        Queries node node_id; the node answers with a multi-frame byte stream
+        on CAN id 0x4A0+node_id. Only that node's own receive buffer is
+        cleared; other nodes (including the default master node 15) are untouched.
+
+        CAN ID:
+            0x4A0+node_id
+
+        Args:
+            node_id (int): node number [0,15], default 0x0F (master node)
+
+        Raises:
+            ValueError: node_id out of range [0,15]
+        '''
+        if not (0 <= node_id <= 15):
+            raise ValueError("SearchNodeFirmwareVersion node_id must be in [0, 15] (got %s)" % node_id)
+        tx_can = Message()
+        tx_can.arbitration_id = 0x4A0 + node_id
         tx_can.data = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-        feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
-        if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
-            self.logger.error("SearchPiperFirmwareVersion send failed: SendCanMessage(%s)", feedback)
-        self.__firmware_data = bytearray()
+        with self.__firmware_query_mtx:
+            with self.__node_firmware_data_mtx:
+                self.__node_firmware_data[node_id] = bytearray()
+                if node_id == 15:
+                    with self.__firmware_data_mtx:
+                        self.__firmware_data = bytearray()
+            feedback = self.__arm_can.SendCanMessage(tx_can.arbitration_id, tx_can.data)
+            if feedback is not self.__arm_can.CAN_STATUS.SEND_MESSAGE_SUCCESS:
+                self.logger.error("SearchNodeFirmwareVersion send failed: SendCanMessage(%s)", feedback)
+
+    def GetNodeFirmwareInfo(self, node_id:int = 0x0F) -> Optional[dict]:
+        '''
+        获取指定节点固件信息
+
+        节点信息块布局(有效字段全部位于前80字节内):
+            [0:8]    硬件版本,如"H-V1.2.0"/"H-V1.2-1"
+            [16:18]  电机减速比,如"10"
+            [32:40]  节点类型,如"JXB2_DRV"/"ARM_MC"
+            [60:68]  软件版本,如"V1.0.7"/"S-V1.7-3"
+            [68:74]  生产日期,如"250624"
+            [76:80]  节点编号,如"1"~"5","0006","0007","15"
+        注意:所有解析字段均位于前80字节;收到80字节即就绪,忽略未知尾部
+
+        Returns:
+            Optional[dict]: 接收到至少80字节时返回字典,包含字段
+                {"node_id", "can_id", "hardware_version", "motor_ratio_and_batch",
+                 "node_type", "software_version", "production_date", "node_number"}
+                数据不足时返回None
+
+        Raises:
+            ValueError: node_id超出[0,15]范围
+        '''
+        '''
+        Get firmware info for a specific node.
+
+        Node info block layout (all decoded fields are within the first
+        80 bytes, so readiness does not depend on unknown trailing bytes):
+            [0:8]    hardware version, e.g. "H-V1.2.0"/"H-V1.2-1"
+            [16:18]  motor reduction ratio, e.g. "10"
+            [32:40]  node type, e.g. "JXB2_DRV"/"ARM_MC"
+            [60:68]  software version, e.g. "V1.0.7"/"S-V1.7-3"
+            [68:74]  production date, e.g. "250624"
+            [76:80]  node number, e.g. "1"~"5", "0006", "0007", "15"
+
+        Returns:
+            Optional[dict]: dict with fields
+                {"node_id", "can_id", "hardware_version", "motor_ratio_and_batch",
+                 "node_type", "software_version", "production_date", "node_number"}
+                once at least 80 bytes have been received; None otherwise.
+
+        Raises:
+            ValueError: node_id out of range [0,15]
+        '''
+        if not (0 <= node_id <= 15):
+            raise ValueError("GetNodeFirmwareInfo node_id must be in [0, 15] (got %s)" % node_id)
+        with self.__node_firmware_data_mtx:
+            node_buf = self.__node_firmware_data.get(node_id)
+            if node_buf is None or len(node_buf) < 80:
+                return None
+            block = bytes(node_buf[:80])
+        def _strip(field: bytes) -> str:
+            return field.decode('utf-8', errors='ignore').replace('\x00', '').strip()
+        return {
+            "node_id": node_id,
+            "can_id": 0x4A0 + node_id,
+            "hardware_version": _strip(block[0:8]),
+            "motor_ratio_and_batch": _strip(block[16:18]),
+            "node_type": _strip(block[32:40]),
+            "software_version": _strip(block[60:68]),
+            "production_date": _strip(block[68:74]),
+            "node_number": _strip(block[76:80]),
+        }
+
+    def GetMotorDriverVersions(self, nodes=tuple(range(1, 8)), timeout_per_node: float = 3.0) -> dict:
+        '''
+        批量查询各节点电机驱动器软件版本(高层接口)
+
+        流程:
+            1.进入扫描模式(0x422 data[0]=0x02)
+            2.依次查询关节节点,等待80字节有效字段或超时;不自动重发
+            3.无论是否异常,最后都会退出扫描模式
+            4.若nodes包含15,退出扫描模式后再查询主控节点15(其无需扫描模式)
+
+        Args:
+            nodes (Sequence[int]): 要查询的节点号列表,默认(1,2,3,4,5,6,7)
+            timeout_per_node (float): 每个节点的等待超时时间(秒),默认3.0
+
+        Returns:
+            dict: {节点号: 软件版本字符串},如{1: "V1.0.7", ..., 15: "S-V1.7-3"},
+            超时未应答的节点不包含在内
+        '''
+        '''
+        Batch-query the software versions of the motor driver nodes (high-level API).
+
+        Flow:
+            1. Enter scan mode (0x422 data[0]=0x02)
+            2. Query each joint node once and wait for the 80 field bytes.
+               Nodes that time out are skipped; no automatic retries.
+            3. Scan mode is always exited at the end, even on error.
+            4. If 15 is in nodes, the master node 15 is queried after exiting
+               scan mode (it does not need scan mode).
+
+        Args:
+            nodes (Sequence[int]): node numbers to query, default (1,2,3,4,5,6,7)
+            timeout_per_node (float): per-node wait timeout in seconds, default 3.0
+
+        Returns:
+            dict: {node_id: software version string}, e.g.
+            {1: "V1.0.7", ..., 15: "S-V1.7-3"}; nodes that time out are omitted.
+        '''
+        nodes = tuple(dict.fromkeys(nodes))
+        if any(not isinstance(node, int) or not 0 <= node <= 15 for node in nodes):
+            raise ValueError("nodes must be in [0, 15]")
+        if timeout_per_node < 0:
+            raise ValueError("timeout_per_node must be non-negative")
+
+        def query_node(node):
+            self.SearchNodeFirmwareVersion(node)
+            with self.__node_firmware_data_mtx:
+                ready = self.__node_firmware_data_mtx.wait_for(
+                    lambda: len(self.__node_firmware_data[node]) == 80,
+                    timeout_per_node,
+                )
+                if not ready:
+                    del self.__node_firmware_data[node]
+                    return None
+                return self.GetNodeFirmwareInfo(node)
+
+        with self.__firmware_query_mtx:
+            results = {}
+            joint_nodes = [node for node in nodes if node != 15]
+            if joint_nodes:
+                try:
+                    self.SetFirmwareScanMode(True)
+                    for node in joint_nodes:
+                        info = query_node(node)
+                        if info is not None:
+                            results[node] = info["software_version"]
+                finally:
+                    self.SetFirmwareScanMode(False)
+            if 15 in nodes:
+                info = query_node(15)
+                if info is not None:
+                    results[15] = info["software_version"]
+            return results
     
     def __JointMitCtrl(self,motor_num:int,
                             pos_ref:float, vel_ref:float, kp:float, kd:float, t_ref:float,

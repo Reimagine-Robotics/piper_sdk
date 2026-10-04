@@ -282,11 +282,12 @@ class C_PiperParserV2(C_PiperParserBase):
             msg.arm_gripper_ctrl.grippers_effort = self.ConvertToNegative_16bit(self.ConvertBytesToInt(can_data,4,6))
             msg.arm_gripper_ctrl.status_code = self.ConvertToNegative_8bit(self.ConvertBytesToInt(can_data,6,7),False)
             msg.arm_gripper_ctrl.set_zero = self.ConvertToNegative_8bit(self.ConvertBytesToInt(can_data,7,8),False)
-        # 固件版本
-        elif(can_id == CanIDPiper.ARM_FIRMWARE_READ.value):
-            msg.type_ = ArmMessageMapping.get_mapping(can_id=can_id)
+        # 固件版本(0x4A0~0x4AF,节点号=CAN ID-0x4A0,0x4AF为主控节点15)
+        elif(CanIDPiper.ARM_FIRMWARE_READ.value - 0x0F <= can_id <= CanIDPiper.ARM_FIRMWARE_READ.value):
+            msg.type_ = ArmMsgType.PiperMsgFirmwareRead
             msg.time_stamp = can_time_now
             msg.firmware_data = can_data
+            msg.firmware_node = can_id - 0x4A0
         # 夹爪/示教器参数反馈指令(基于V1.5-2版本后)
         elif(can_id == CanIDPiper.ARM_GRIPPER_TEACHING_PENDANT_PARAM_FEEDBACK.value):
             msg.type_ = ArmMessageMapping.get_mapping(can_id=can_id)
